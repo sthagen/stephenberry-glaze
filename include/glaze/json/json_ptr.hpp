@@ -17,168 +17,158 @@
 
 namespace glz
 {
-   namespace detail
-   {
-      template <class F, class T>
-         requires glaze_array_t<T> || tuple_t<std::decay_t<T>> || array_t<std::decay_t<T>> ||
-                  is_std_tuple<std::decay_t<T>> bool
-      seek_impl(F&& func, T&& value, sv json_ptr);
+   template <class F, class T>
+      requires glaze_array_t<T> || tuple_t<std::decay_t<T>> || array_t<std::decay_t<T>> ||
+               is_std_tuple<std::decay_t<T>> bool
+   seek(F&& func, T&& value, sv json_ptr);
 
-      template <class F, class T>
-         requires nullable_t<std::decay_t<T>> bool
-      seek_impl(F&& func, T&& value, sv json_ptr);
+   template <class F, class T>
+      requires nullable_t<std::decay_t<T>> bool
+   seek(F&& func, T&& value, sv json_ptr);
 
-      template <class F, class T>
-         requires readable_map_t<std::decay_t<T>> || glaze_object_t<T> bool
-      seek_impl(F&& func, T&& value, sv json_ptr);
+   template <class F, class T>
+      requires readable_map_t<std::decay_t<T>> || glaze_object_t<T> bool
+   seek(F&& func, T&& value, sv json_ptr);
 
-      template <class F, class T>
-      bool seek_impl(F&& func, T&& value, sv json_ptr)
-      {
-         if (json_ptr.empty()) {
-            func(value);
-            return true;
-         }
-         return false;
-      }
-
-      // TODO: compile time search for `~` and optimize if escape does not exist
-      template <class F, class T>
-         requires readable_map_t<std::decay_t<T>> || glaze_object_t<T> bool
-      seek_impl(F&& func, T&& value, sv json_ptr)
-      {
-         if (json_ptr.empty()) {
-            func(value);
-            return true;
-         }
-         if (json_ptr[0] != '/' || json_ptr.size() < 2) return false;
-
-         static thread_local auto key = []() {
-            if constexpr (writable_map_t<std::decay_t<T>>) {
-               return typename std::decay_t<T>::key_type{};
-            }
-            else {
-               return std::string{};
-            }
-         }();
-         using key_t = decltype(key);
-         static_assert(std::is_same_v<key_t, std::string> || num_t<key_t>);
-
-         if constexpr (std::is_same_v<key_t, std::string>) {
-            key.clear();
-            size_t i = 1;
-            for (; i < json_ptr.size(); ++i) {
-               auto c = json_ptr[i];
-               if (c == '/')
-                  break;
-               else if (c == '~') {
-                  if (++i == json_ptr.size()) return false;
-                  c = json_ptr[i];
-                  if (c == '0')
-                     c = '~';
-                  else if (c == '1')
-                     c = '/';
-                  else
-                     return false;
-               }
-               key.push_back(c);
-            }
-            json_ptr = json_ptr.substr(i);
-         }
-         else if constexpr (std::is_floating_point_v<key_t>) {
-            auto it = reinterpret_cast<const uint8_t*>(json_ptr.data());
-            auto s = parse_float(key, it);
-            if (!s) return false;
-            json_ptr = json_ptr.substr(reinterpret_cast<const char*>(it) - json_ptr.data());
-         }
-         else {
-            auto [p, ec] = std::from_chars(&json_ptr[1], json_ptr.data() + json_ptr.size(), key);
-            if (ec != std::errc{}) return false;
-            json_ptr = json_ptr.substr(p - json_ptr.data());
-         }
-
-         if constexpr (glaze_object_t<T>) {
-            static constexpr auto frozen_map = detail::make_map<T>();
-            const auto& member_it = frozen_map.find(key);
-            if (member_it != frozen_map.end()) {
-               return std::visit(
-                  [&](auto&& member_ptr) {
-                     using V = std::decay_t<decltype(member_ptr)>;
-                     if constexpr (std::is_member_object_pointer_v<V>) {
-                        return seek_impl(std::forward<F>(func), value.*member_ptr, json_ptr);
-                     }
-                     else if constexpr (std::is_member_function_pointer_v<V>) {
-                        return seek_impl(std::forward<F>(func), member_ptr, json_ptr);
-                     }
-                     else {
-                        return seek_impl(std::forward<F>(func), member_ptr(value), json_ptr);
-                     }
-                  },
-                  member_it->second);
-            }
-            else
-               return false;
-         }
-         else {
-            return seek_impl(std::forward<F>(func), value[key], json_ptr);
-         }
-      }
-
-      template <class F, class T>
-         requires glaze_array_t<T> || tuple_t<std::decay_t<T>> || array_t<std::decay_t<T>> ||
-                  is_std_tuple<std::decay_t<T>> bool
-      seek_impl(F&& func, T&& value, sv json_ptr)
-      {
-         if (json_ptr.empty()) {
-            func(value);
-            return true;
-         }
-         if (json_ptr[0] != '/' || json_ptr.size() < 2) return false;
-
-         size_t index{};
-         auto [p, ec] = std::from_chars(&json_ptr[1], json_ptr.data() + json_ptr.size(), index);
-         if (ec != std::errc{}) return false;
-         json_ptr = json_ptr.substr(p - json_ptr.data());
-
-         if constexpr (glaze_array_t<std::decay_t<T>>) {
-            static constexpr auto member_array = glz::detail::make_array<std::decay_t<T>>();
-            if (index >= member_array.size()) return false;
-            return std::visit(
-               [&](auto&& member_ptr) {
-                  return seek_impl(std::forward<F>(func), get_member(value, member_ptr), json_ptr);
-               },
-               member_array[index]);
-         }
-         else if constexpr (tuple_t<std::decay_t<T>> || is_std_tuple<std::decay_t<T>>) {
-            if (index >= std::tuple_size_v<std::decay_t<T>>) return false;
-            auto tuple_element_ptr = get_runtime(value, index);
-            return std::visit(
-               [&](auto&& element_ptr) { return seek_impl(std::forward<F>(func), *element_ptr, json_ptr); },
-               tuple_element_ptr);
-         }
-         else {
-            return seek_impl(std::forward<F>(func), *std::next(value.begin(), index), json_ptr);
-         }
-      }
-
-      template <class F, class T>
-         requires nullable_t<std::decay_t<T>> bool
-      seek_impl(F&& func, T&& value, sv json_ptr)
-      {
-         if (json_ptr.empty()) {
-            func(value);
-            return true;
-         }
-         if (!value) return false;
-         return seek_impl(std::forward<F>(func), *value, json_ptr);
-      }
-   } // namespace detail
-
-   // Call a function on an value at the location of a json_ptr
    template <class F, class T>
    bool seek(F&& func, T&& value, sv json_ptr)
    {
-      return detail::seek_impl(std::forward<F>(func), std::forward<T>(value), json_ptr);
+      if (json_ptr.empty()) {
+         func(value);
+         return true;
+      }
+      return false;
+   }
+
+   // TODO: compile time search for `~` and optimize if escape does not exist
+   template <class F, class T>
+      requires readable_map_t<std::decay_t<T>> || glaze_object_t<T> bool
+   seek(F&& func, T&& value, sv json_ptr)
+   {
+      if (json_ptr.empty()) {
+         func(value);
+         return true;
+      }
+      if (json_ptr[0] != '/' || json_ptr.size() < 2) return false;
+
+      static thread_local auto key = []() {
+         if constexpr (writable_map_t<std::decay_t<T>>) {
+            return typename std::decay_t<T>::key_type{};
+         }
+         else {
+            return std::string{};
+         }
+      }();
+      using key_t = decltype(key);
+      static_assert(std::is_same_v<key_t, std::string> || num_t<key_t>);
+
+      if constexpr (std::is_same_v<key_t, std::string>) {
+         key.clear();
+         size_t i = 1;
+         for (; i < json_ptr.size(); ++i) {
+            auto c = json_ptr[i];
+            if (c == '/')
+               break;
+            else if (c == '~') {
+               if (++i == json_ptr.size()) return false;
+               c = json_ptr[i];
+               if (c == '0')
+                  c = '~';
+               else if (c == '1')
+                  c = '/';
+               else
+                  return false;
+            }
+            key.push_back(c);
+         }
+         json_ptr = json_ptr.substr(i);
+      }
+      else if constexpr (std::is_floating_point_v<key_t>) {
+         auto it = reinterpret_cast<const uint8_t*>(json_ptr.data());
+         auto s = parse_float(key, it);
+         if (!s) return false;
+         json_ptr = json_ptr.substr(reinterpret_cast<const char*>(it) - json_ptr.data());
+      }
+      else {
+         auto [p, ec] = std::from_chars(&json_ptr[1], json_ptr.data() + json_ptr.size(), key);
+         if (ec != std::errc{}) return false;
+         json_ptr = json_ptr.substr(p - json_ptr.data());
+      }
+
+      if constexpr (glaze_object_t<T>) {
+         static constexpr auto frozen_map = detail::make_map<T>();
+         const auto& member_it = frozen_map.find(key);
+         if (member_it != frozen_map.end()) {
+            return std::visit(
+               [&](auto&& member_ptr) {
+                  using V = std::decay_t<decltype(member_ptr)>;
+                  if constexpr (std::is_member_object_pointer_v<V>) {
+                     return seek(std::forward<F>(func), value.*member_ptr, json_ptr);
+                  }
+                  else if constexpr (std::is_member_function_pointer_v<V>) {
+                     return seek(std::forward<F>(func), member_ptr, json_ptr);
+                  }
+                  else {
+                     return seek(std::forward<F>(func), member_ptr(value), json_ptr);
+                  }
+               },
+               member_it->second);
+         }
+         else
+            return false;
+      }
+      else {
+         return seek(std::forward<F>(func), value[key], json_ptr);
+      }
+   }
+
+   template <class F, class T>
+      requires glaze_array_t<T> || tuple_t<std::decay_t<T>> || array_t<std::decay_t<T>> ||
+               is_std_tuple<std::decay_t<T>> bool
+   seek(F&& func, T&& value, sv json_ptr)
+   {
+      if (json_ptr.empty()) {
+         func(value);
+         return true;
+      }
+      if (json_ptr[0] != '/' || json_ptr.size() < 2) return false;
+
+      size_t index{};
+      auto [p, ec] = std::from_chars(&json_ptr[1], json_ptr.data() + json_ptr.size(), index);
+      if (ec != std::errc{}) return false;
+      json_ptr = json_ptr.substr(p - json_ptr.data());
+
+      if constexpr (glaze_array_t<std::decay_t<T>>) {
+         static constexpr auto member_array = glz::detail::make_array<std::decay_t<T>>();
+         if (index >= member_array.size()) return false;
+         return std::visit(
+            [&](auto&& member_ptr) {
+               return seek(std::forward<F>(func), get_member(value, member_ptr), json_ptr);
+            },
+            member_array[index]);
+      }
+      else if constexpr (tuple_t<std::decay_t<T>> || is_std_tuple<std::decay_t<T>>) {
+         if (index >= std::tuple_size_v<std::decay_t<T>>) return false;
+         auto tuple_element_ptr = get_runtime(value, index);
+         return std::visit(
+            [&](auto&& element_ptr) { return seek(std::forward<F>(func), *element_ptr, json_ptr); },
+            tuple_element_ptr);
+      }
+      else {
+         return seek(std::forward<F>(func), *std::next(value.begin(), index), json_ptr);
+      }
+   }
+
+   template <class F, class T>
+      requires nullable_t<std::decay_t<T>> bool
+   seek(F&& func, T&& value, sv json_ptr)
+   {
+      if (json_ptr.empty()) {
+         func(value);
+         return true;
+      }
+      if (!value) return false;
+      return seek(std::forward<F>(func), *value, json_ptr);
    }
 
    template <class R>
@@ -197,7 +187,7 @@ namespace glz
 
       error_code ec{};
 
-      const auto valid = detail::seek_impl(
+      const auto valid = seek(
          [&ec, &result, &root_value, ... args = std::forward<Args>(args)](auto&& val) {
             using V = std::decay_t<decltype(val)>;
             if constexpr (std::is_member_function_pointer_v<V>) {
@@ -249,7 +239,7 @@ namespace glz
    {
       V* result{};
       error_code ec{};
-      detail::seek_impl(
+      seek(
          [&](auto&& val) {
             if constexpr (!std::is_same_v<V, std::decay_t<decltype(val)>>) {
                ec = error_code::get_wrong_type;
@@ -277,7 +267,7 @@ namespace glz
    V* get_if(T&& root_value, sv json_ptr)
    {
       V* result{};
-      detail::seek_impl(
+      seek(
          [&](auto&& val) {
             if constexpr (std::is_same_v<V, std::decay_t<decltype(val)>>) {
                result = &val;
@@ -295,7 +285,7 @@ namespace glz
       V result{};
       bool found{};
       error_code ec{};
-      detail::seek_impl(
+      seek(
          [&](auto&& val) {
             if constexpr (std::is_assignable_v<V, decltype(val)> &&
                           detail::non_narrowing_convertable<std::decay_t<decltype(val)>, V>) {
@@ -323,7 +313,7 @@ namespace glz
    bool set(T&& root_value, const sv json_ptr, V&& value)
    {
       bool result{};
-      detail::seek_impl(
+      seek(
          [&](auto&& val) {
             if constexpr (std::is_assignable_v<decltype(val), decltype(value)> &&
                           detail::non_narrowing_convertable<std::decay_t<decltype(value)>,

@@ -141,7 +141,7 @@ namespace glz
             param_set param_set;
 
             parse_error pe{};
-            bool found = detail::seek_impl(
+            bool found = seek(
                [&](auto&& val) {
                   if constexpr (std::is_assignable_v<basic, std::decay_t<decltype(val)>>) {
                      param_set.param_ptr = &val;
@@ -333,7 +333,7 @@ namespace glz
             random_param result{};
 
             parse_error pe{};
-            bool found = detail::seek_impl(
+            bool found = seek(
                [&](auto&& val) {
                   if constexpr (std::is_assignable_v<basic, std::decay_t<decltype(val)>>) {
                      result.param_ptr = &val;

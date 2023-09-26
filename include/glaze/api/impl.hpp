@@ -37,7 +37,7 @@ namespace glz
 
       [[nodiscard]] bool contains(const sv path) noexcept override
       {
-         return detail::seek_impl([&](auto&&) {}, user, path);
+         return seek([&](auto&&) {}, user, path);
       }
 
       bool read(const uint32_t format, const sv path, const sv data) noexcept override
@@ -46,11 +46,11 @@ namespace glz
          bool success;
 
          if (format == json) {
-            success = detail::seek_impl([&](auto&& val) { pe = glz::read<opts{}>(val, data); }, user, path);
+            success = seek([&](auto&& val) { pe = glz::read<opts{}>(val, data); }, user, path);
          }
          else {
             success =
-               detail::seek_impl([&](auto&& val) { pe = glz::read<opts{.format = binary}>(val, data); }, user, path);
+               seek([&](auto&& val) { pe = glz::read<opts{.format = binary}>(val, data); }, user, path);
          }
 
          if (success) {
@@ -65,10 +65,10 @@ namespace glz
       bool write(const uint32_t format, const sv path, std::string& data) noexcept override
       {
          if (format == json) {
-            return detail::seek_impl([&](auto&& val) { glz::write_json(val, data); }, user, path);
+            return seek([&](auto&& val) { glz::write_json(val, data); }, user, path);
          }
          else {
-            return detail::seek_impl([&](auto&& val) { glz::write_binary(val, data); }, user, path);
+            return seek([&](auto&& val) { glz::write_binary(val, data); }, user, path);
          }
       }
 
@@ -105,11 +105,11 @@ namespace glz
 
          bool found = false;
 
-         detail::seek_impl(
+         seek(
             [&](auto&& parent) {
                using P = std::decay_t<decltype(parent)>;
 
-               detail::seek_impl(
+               seek(
                   [&](auto&& val) {
                      using V = std::decay_t<decltype(val)>;
                      if constexpr (std::is_member_function_pointer_v<V>) {
@@ -196,7 +196,7 @@ namespace glz
 
          glz::hash_t type_hash{};
 
-         const auto success = detail::seek_impl(
+         const auto success = seek(
             [&](auto&& val) {
                using V = std::decay_t<decltype(*unwrap(val))>;
                if constexpr (std::is_member_function_pointer_v<V>) {
@@ -230,11 +230,11 @@ namespace glz
          const auto parent_ptr = p.first;
          const auto last_ptr = p.second;
 
-         detail::seek_impl(
+         seek(
             [&](auto&& parent) {
                using P = std::decay_t<decltype(parent)>;
 
-               detail::seek_impl(
+               seek(
                   [&](auto&& val) {
                      using V = std::decay_t<decltype(val)>;
                      if constexpr (std::is_member_function_pointer_v<V>) {
