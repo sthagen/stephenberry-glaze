@@ -657,6 +657,8 @@ namespace glz
                            if (*it == 'u') [[unlikely]] {
                               ++it;
                               read_escaped_unicode<char>(value, ctx, it, end);
+                              if (bool(ctx.error)) [[unlikely]]
+                                 return;
                            }
                            else if (char_unescape_table[uint8_t(*it)]) [[likely]] {
                               value.push_back(char_unescape_table[uint8_t(*it)]);
