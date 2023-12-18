@@ -28,6 +28,11 @@
 
 namespace glz
 {
+   constexpr uint16_t combine(const char chars[2]) noexcept
+   {
+      return uint16_t(chars[0]) | (uint16_t(chars[1]) << 8);
+   }
+   
    // write out a string like type without quoting it
    template <class T>
    struct raw_t

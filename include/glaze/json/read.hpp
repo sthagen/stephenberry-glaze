@@ -545,6 +545,38 @@ namespace glz
          std::advance(it, 4);
       }
       
+      template <class T, class It> requires (std::is_same_v<T, char> || std::is_same_v<T, char8_t>)
+      GLZ_ALWAYS_INLINE size_t read_escaped_unicode_into_char(is_context auto&& ctx, It&& it)
+      {
+         // This is slow but who is escaping unicode nowadays
+         // codecvt is problematic on mingw hence mixing with the c character conversion functions
+         if (!std::all_of(it, it + 4, ::isxdigit)) [[unlikely]] {
+            ctx.error = error_code::u_requires_hex_digits;
+            return 0;
+         }
+         
+         char32_t codepoint = hex4_to_char32(it);
+         
+         char8_t buffer[4];
+         auto& facet = std::use_facet<std::codecvt<char32_t, char8_t, mbstate_t>>(std::locale());
+         std::mbstate_t mbstate{};
+         const char32_t* from_next;
+         char8_t* to_next;
+         const auto result =
+            facet.out(mbstate, &codepoint, &codepoint + 1, from_next, buffer, buffer + 4, to_next);
+         if (result != std::codecvt_base::ok) {
+            ctx.error = error_code::unicode_escape_conversion_failure;
+            return 0;
+         }
+         
+         const auto n = size_t(to_next - buffer);
+         for (size_t i = 0; i < n; ++i) {
+            it[i] = buffer[i];
+         }
+
+         return n;
+      }
+      
       // clang-format off
       constexpr std::array<uint8_t, 256> char_unescape_table = { //
          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
@@ -604,47 +636,55 @@ namespace glz
                else {
                   if constexpr (!Opts.force_conformance) {
                      auto start = it;
-                     size_t value_index = 0;
-                     while (it < end) {
-                        skip_till_escape_or_quote(ctx, it, end);
-                        if (bool(ctx.error)) [[unlikely]]
-                           return;
-                        
-                        if (*it == '"') {
-                           const auto n = size_t(it - start);
-                           value.resize(value_index + n);
-                           std::memcpy(value.data() + value_index, &*start, n);
-                           ++it;
-                           return;
-                        }
-                        else {
-                           const auto n = size_t(it - start);
-                           value.resize(value_index + n + 1); // +1 for escaped character
-                           std::memcpy(value.data() + value_index, &*start, n);
-                           value_index += n;
-                           ++it; // skip the escape character
+                     skip_till_unescaped_quote(ctx, it, end);
+                     if (bool(ctx.error)) [[unlikely]] {
+                        return;
+                     }
+                     
+                     const auto n = size_t(it - start);
+                     ++it;
+                     
+                     value.resize(n + 8); // Add 8 for SWAR
+                     std::memcpy(value.data(), &*start, n);
+                     std::memset(value.data() + n, 0, 8); // set end buffer to zero
+                     
+                     auto* c = value.data();
+                     const auto* c_end = c + n;
+                     size_t reduction = 0;
+                     for (; c < c_end;) {
+                        uint64_t chunk;
+                        std::memcpy(&chunk, c, 8);
+                        const uint64_t test_chars = has_escape(chunk);
+                        if (test_chars) {
+                           c += (std::countr_zero(test_chars) >> 3);
+                           ++c; // skip the escape
                            
-                           if (*it == 'u') [[unlikely]] {
-                              value.resize(value_index + n);
-                              ++it;
-                              // more than four characters in unicode is invalid JSON
-                              read_escaped_unicode<char>(value, ctx, it, end);
+                           if (*c == 'u') [[unlikely]] {
+                              ++c;
+                              const auto fill_length = read_escaped_unicode_into_char<char>(ctx, c);
                               if (bool(ctx.error)) [[unlikely]]
                                  return;
-                              value_index = value.size();
+                              std::memmove(c - 2, c, size_t(c_end - c));
+                              c += 4; // for the 4 code points
+                              reduction += 6 - fill_length; // \u + 4 - fill_length
                            }
-                           else if (char_unescape_table[uint8_t(*it)]) [[likely]] {
-                                 std::memcpy(value.data() + value_index, &char_unescape_table[uint8_t(*it)], 1);
-                                 ++value_index;
-                                 ++it;
+                           else if (char_unescape_table[uint8_t(*c)]) [[likely]] {
+                              std::memcpy(c - 1, &char_unescape_table[uint8_t(*c)], 1);
+                              std::memmove(c, c + 1, size_t(c_end - (c + 1)));
+                              // no need to increment c because of the memmove
+                              ++reduction;
                            }
                            else [[unlikely]] {
                               ctx.error = error_code::invalid_escape;
                               return;
                            }
-                           start = it;
+                        }
+                        else {
+                           c += 8;
                         }
                      }
+                     
+                     value.resize(n - reduction);
                   }
                   else {
                      auto handle_escaped = [&] {

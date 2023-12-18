@@ -165,9 +165,8 @@ namespace glz::detail
    GLZ_ALWAYS_INLINE void skip_till_escape_or_quote(is_context auto&& ctx, auto&& it, auto&& end) noexcept
    {
       static_assert(std::contiguous_iterator<std::decay_t<decltype(it)>>);
-
-      const auto end_m7 = end - 7;
-      for (; it < end_m7; it += 8) {
+      
+      for (const auto end_m7 = end - 7; it < end_m7; it += 8) {
          uint64_t chunk;
          std::memcpy(&chunk, it, 8);
          const uint64_t test_chars = has_quote(chunk) | has_escape(chunk);
@@ -200,6 +199,48 @@ namespace glz::detail
          return;
       }
 
+      ctx.error = error_code::expected_quote;
+   }
+   
+   GLZ_ALWAYS_INLINE void skip_till_unescaped_quote(is_context auto&& ctx, auto&& it, auto&& end) noexcept
+   {
+      static_assert(std::contiguous_iterator<std::decay_t<decltype(it)>>);
+      
+      for (const auto end_m7 = end - 7; it < end_m7;) {
+         uint64_t chunk;
+         std::memcpy(&chunk, it, 8);
+         uint64_t test_chars = has_quote(chunk);
+         if (test_chars) {
+            it += (std::countr_zero(test_chars) >> 3);
+
+            if (it[-1] == '\\') {
+               ++it; // skip the escaped quote
+            }
+            else {
+               return;
+            }
+         }
+         else {
+            it += 8;
+         }
+      }
+
+      // Tail end of buffer. Should be rare we even get here
+      while (it < end) {
+         switch (*it) {
+            case '\\': {
+               ++it;
+               ++it;
+            }
+            case '"': {
+               return;
+            }
+            default: {
+               ++it;
+            }
+         }
+      }
+      
       ctx.error = error_code::expected_quote;
    }
 
