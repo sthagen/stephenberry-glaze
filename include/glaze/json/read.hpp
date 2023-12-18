@@ -665,7 +665,7 @@ namespace glz
                               if (bool(ctx.error)) [[unlikely]]
                                  return;
                               std::memmove(c - 2, c, fill_length);
-                              std::memmove(c + fill_length, c + 4, size_t(c_end - (c + fill_length)));
+                              std::memmove(c + fill_length, c + 4, size_t(c_end - (c + 4)));
                               c += 4; // for the 4 code points
                               reduction += 6 - fill_length; // \u + 4 - fill_length
                            }
