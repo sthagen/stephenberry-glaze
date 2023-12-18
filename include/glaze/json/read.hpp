@@ -602,14 +602,14 @@ namespace glz
                   ++it;
                }
                else {
-                  auto start = it;
-                  size_t value_index = 0;
-                  while (it < end) {
-                     if constexpr (!Opts.force_conformance) {
+                  if constexpr (!Opts.force_conformance) {
+                     auto start = it;
+                     size_t value_index = 0;
+                     while (it < end) {
                         skip_till_escape_or_quote(ctx, it, end);
                         if (bool(ctx.error)) [[unlikely]]
                            return;
-
+                        
                         if (*it == '"') {
                            const auto n = size_t(it - start);
                            value.resize(value_index + n);
@@ -647,9 +647,10 @@ namespace glz
                            start = it;
                         }
                      }
-                     else {
-                        auto handle_escaped = [&] {
-                           switch (*it) {
+                  }
+                  else {
+                     auto handle_escaped = [&] {
+                        switch (*it) {
                            case '"':
                            case '\\':
                            case '/':
@@ -679,38 +680,41 @@ namespace glz
                               ctx.error = error_code::invalid_escape;
                               return;
                            }
-                           }
-                           ++it;
-                        };
-                        
+                        }
+                        ++it;
+                     };
+                     
+                     auto start = it;
+                     
+                     while (it < end) {
                         switch (*it) {
-                        [[likely]] case '"' : {
-                           value.append(start, size_t(it - start));
-                           ++it;
-                           return;
-                        }
-                        [[unlikely]] case '\b':
-                        [[unlikely]] case '\f':
-                        [[unlikely]] case '\n':
-                        [[unlikely]] case '\r':
-                        [[unlikely]] case '\t' : {
-                           ctx.error = error_code::syntax_error;
-                           return;
-                        }
-                        [[unlikely]] case '\0' : {
-                           ctx.error = error_code::unexpected_end;
-                           return;
-                        }
-                        [[unlikely]] case '\\' : {
-                           value.append(start, size_t(it - start));
-                           ++it;
-                           handle_escaped();
-                           if (bool(ctx.error)) [[unlikely]]
-                              return;
-                           start = it;
-                           break;
-                        }
-                           [[likely]] default : ++it;
+                              [[likely]] case '"' : {
+                                 value.append(start, size_t(it - start));
+                                 ++it;
+                                 return;
+                              }
+                              [[unlikely]] case '\b':
+                              [[unlikely]] case '\f':
+                              [[unlikely]] case '\n':
+                              [[unlikely]] case '\r':
+                              [[unlikely]] case '\t' : {
+                                 ctx.error = error_code::syntax_error;
+                                 return;
+                              }
+                              [[unlikely]] case '\0' : {
+                                 ctx.error = error_code::unexpected_end;
+                                 return;
+                              }
+                              [[unlikely]] case '\\' : {
+                                 value.append(start, size_t(it - start));
+                                 ++it;
+                                 handle_escaped();
+                                 if (bool(ctx.error)) [[unlikely]]
+                                    return;
+                                 start = it;
+                                 break;
+                              }
+                              [[likely]] default : ++it;
                         }
                      }
                   }
