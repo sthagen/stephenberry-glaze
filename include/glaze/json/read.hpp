@@ -544,6 +544,24 @@ namespace glz
 
          std::advance(it, 4);
       }
+      
+      // clang-format off
+      constexpr std::array<uint8_t, 256> char_unescape_table = { //
+         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
+         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
+         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
+         0, 0, 0, 0, '"', 0, 0, 0, 0, 0, //
+         0, 0, 0, 0, 0, 0, 0, '/', 0, 0, //
+         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
+         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
+         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
+         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
+         0, 0, '\\', 0, 0, 0, 0, 0, '\b', 0, //
+         0, 0, '\f', 0, 0, 0, 0, 0, 0, 0, //
+         '\n', 0, 0, 0, '\r', 0, '\t', 0, 0, 0, //
+         0, 0, 0, 0, 0, 0, 0, 0, 0, 0 //
+      };
+      // clang-format on
 
       template <string_t T>
       struct from_json<T>
@@ -636,9 +654,18 @@ namespace glz
                         else {
                            value.append(start, size_t(it - start));
                            ++it;
-                           handle_escaped();
-                           if (bool(ctx.error)) [[unlikely]]
+                           if (*it == 'u') [[unlikely]] {
+                              ++it;
+                              read_escaped_unicode<char>(value, ctx, it, end);
+                           }
+                           else if (char_unescape_table[uint8_t(*it)]) [[likely]] {
+                              value.push_back(char_unescape_table[uint8_t(*it)]);
+                              ++it;
+                           }
+                           else [[unlikely]] {
+                              ctx.error = error_code::invalid_escape;
                               return;
+                           }
                            start = it;
                         }
                      }
