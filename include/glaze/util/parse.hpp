@@ -209,9 +209,8 @@ namespace glz::detail
       static_assert(std::contiguous_iterator<std::decay_t<decltype(it)>>);
 
       auto start = it;
-
-      const auto end_m7 = end - 7;
-      for (; it < end_m7; it += 8) {
+      
+      for (const auto end_m7 = end - 7; it < end_m7; it += 8) {
          uint64_t chunk;
          std::memcpy(&chunk, it, 8);
          uint64_t test_chars = has_quote(chunk);
