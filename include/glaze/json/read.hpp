@@ -544,6 +544,24 @@ namespace glz
 
          std::advance(it, 4);
       }
+      
+      // clang-format off
+      constexpr std::array<uint8_t, 256> char_unescape_table = { //
+         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
+         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
+         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
+         0, 0, 0, 0, '"', 0, 0, 0, 0, 0, //
+         0, 0, 0, 0, 0, 0, 0, '/', 0, 0, //
+         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
+         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
+         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
+         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
+         0, 0, '\\', 0, 0, 0, 0, 0, '\b', 0, //
+         0, 0, '\f', 0, 0, 0, 0, 0, 0, 0, //
+         '\n', 0, 0, 0, '\r', 0, '\t', 0, 0, 0, //
+         0, 0, 0, 0, 0, 0, 0, 0, 0, 0 //
+      };
+      // clang-format on
 
       template <string_t T>
       struct from_json<T>
@@ -584,43 +602,8 @@ namespace glz
                   ++it;
                }
                else {
-                  auto handle_escaped = [&] {
-                     switch (*it) {
-                     case '"':
-                     case '\\':
-                     case '/':
-                        value.push_back(*it);
-                        break;
-                     case 'b':
-                        value.push_back('\b');
-                        break;
-                     case 'f':
-                        value.push_back('\f');
-                        break;
-                     case 'n':
-                        value.push_back('\n');
-                        break;
-                     case 'r':
-                        value.push_back('\r');
-                        break;
-                     case 't':
-                        value.push_back('\t');
-                        break;
-                     case 'u': {
-                        ++it;
-                        read_escaped_unicode<char>(value, ctx, it, end);
-                        return;
-                     }
-                     default: {
-                        ctx.error = error_code::invalid_escape;
-                        return;
-                     }
-                     }
-                     ++it;
-                  };
-
-                  value.clear(); // Single append on unescaped strings so overwrite opt isnt as important
                   auto start = it;
+                  size_t value_index = 0;
                   while (it < end) {
                      if constexpr (!Opts.force_conformance) {
                         skip_till_escape_or_quote(ctx, it, end);
@@ -628,20 +611,78 @@ namespace glz
                            return;
 
                         if (*it == '"') {
-                           value.append(start, size_t(it - start));
+                           const auto n = size_t(it - start);
+                           value.resize(value_index + n);
+                           std::memcpy(value.data() + value_index, &*start, n);
                            ++it;
                            return;
                         }
                         else {
-                           value.append(start, size_t(it - start));
-                           ++it;
-                           handle_escaped();
-                           if (bool(ctx.error)) [[unlikely]]
-                              return;
+                           const auto n = size_t(it - start);
+                           value.resize(value_index + n + 1); // +1 for escaped character
+                           std::memcpy(value.data() + value_index, &*start, n);
+                           value_index += n;
+                           ++it; // skip the escape character
+                           
+                           if (*it == 'u') [[unlikely]] {
+                              value.resize(value_index + n);
+                              ++it;
+                              // more than four characters in unicode is invalid JSON
+                              read_escaped_unicode<char>(value, ctx, it, end);
+                              if (bool(ctx.error)) [[unlikely]]
+                                 return;
+                              value_index = value.size();
+                           }
+                           else [[likely]] {
+                              if (char_unescape_table[uint8_t(*it)]) {
+                                 std::memcpy(value.data() + value_index, &char_unescape_table[uint8_t(*it)], 1);
+                                 ++value_index;
+                                 ++it;
+                              }
+                              else {
+                                 ctx.error = error_code::invalid_escape;
+                                 return;
+                              }
+                           }
                            start = it;
                         }
                      }
                      else {
+                        auto handle_escaped = [&] {
+                           switch (*it) {
+                           case '"':
+                           case '\\':
+                           case '/':
+                              value.push_back(*it);
+                              break;
+                           case 'b':
+                              value.push_back('\b');
+                              break;
+                           case 'f':
+                              value.push_back('\f');
+                              break;
+                           case 'n':
+                              value.push_back('\n');
+                              break;
+                           case 'r':
+                              value.push_back('\r');
+                              break;
+                           case 't':
+                              value.push_back('\t');
+                              break;
+                           case 'u': {
+                              ++it;
+                              read_escaped_unicode<char>(value, ctx, it, end);
+                              return;
+                           }
+                           default: {
+                              ctx.error = error_code::invalid_escape;
+                              return;
+                           }
+                           }
+                           ++it;
+                        };
+                        
                         switch (*it) {
                         [[likely]] case '"' : {
                            value.append(start, size_t(it - start));
