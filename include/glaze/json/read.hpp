@@ -633,16 +633,14 @@ namespace glz
                                  return;
                               value_index = value.size();
                            }
-                           else [[likely]] {
-                              if (char_unescape_table[uint8_t(*it)]) [[likely]] {
+                           else if (char_unescape_table[uint8_t(*it)]) [[likely]] {
                                  std::memcpy(value.data() + value_index, &char_unescape_table[uint8_t(*it)], 1);
                                  ++value_index;
                                  ++it;
-                              }
-                              else [[unlikely]] {
-                                 ctx.error = error_code::invalid_escape;
-                                 return;
-                              }
+                           }
+                           else [[unlikely]] {
+                              ctx.error = error_code::invalid_escape;
+                              return;
                            }
                            start = it;
                         }
