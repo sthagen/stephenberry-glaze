@@ -602,41 +602,6 @@ namespace glz
                   ++it;
                }
                else {
-                  auto handle_escaped = [&] {
-                     switch (*it) {
-                     case '"':
-                     case '\\':
-                     case '/':
-                        value.push_back(*it);
-                        break;
-                     case 'b':
-                        value.push_back('\b');
-                        break;
-                     case 'f':
-                        value.push_back('\f');
-                        break;
-                     case 'n':
-                        value.push_back('\n');
-                        break;
-                     case 'r':
-                        value.push_back('\r');
-                        break;
-                     case 't':
-                        value.push_back('\t');
-                        break;
-                     case 'u': {
-                        ++it;
-                        read_escaped_unicode<char>(value, ctx, it, end);
-                        return;
-                     }
-                     default: {
-                        ctx.error = error_code::invalid_escape;
-                        return;
-                     }
-                     }
-                     ++it;
-                  };
-                  
                   if constexpr (!Opts.force_conformance) {
                      auto start = it;
                      value.clear();
@@ -673,6 +638,41 @@ namespace glz
                      }
                   }
                   else {
+                     auto handle_escaped = [&] {
+                        switch (*it) {
+                        case '"':
+                        case '\\':
+                        case '/':
+                           value.push_back(*it);
+                           break;
+                        case 'b':
+                           value.push_back('\b');
+                           break;
+                        case 'f':
+                           value.push_back('\f');
+                           break;
+                        case 'n':
+                           value.push_back('\n');
+                           break;
+                        case 'r':
+                           value.push_back('\r');
+                           break;
+                        case 't':
+                           value.push_back('\t');
+                           break;
+                        case 'u': {
+                           ++it;
+                           read_escaped_unicode<char>(value, ctx, it, end);
+                           return;
+                        }
+                        default: {
+                           ctx.error = error_code::invalid_escape;
+                           return;
+                        }
+                        }
+                        ++it;
+                     };
+                     
                      value.clear(); // Single append on unescaped strings so overwrite opt isnt as important
                      auto start = it;
                      while (it < end) {
