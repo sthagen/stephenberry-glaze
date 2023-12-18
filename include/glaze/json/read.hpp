@@ -621,13 +621,8 @@ namespace glz
                   
                   if constexpr (!Opts.force_conformance) {
                      auto start = it;
-                     skip_till_unescaped_quote(ctx, it, end);
-                     if (bool(ctx.error)) [[unlikely]]
-                        return;
-                     value.reserve(size_t(it - start));
                      value.clear();
                      
-                     it = start;
                      while (it < end) {
                         skip_till_escape_or_quote(ctx, it, end);
                         if (bool(ctx.error)) [[unlikely]]
