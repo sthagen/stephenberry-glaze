@@ -637,9 +637,8 @@ namespace glz
                   if constexpr (!Opts.force_conformance) {
                      auto start = it;
                      skip_till_unescaped_quote(ctx, it, end);
-                     if (bool(ctx.error)) [[unlikely]] {
+                     if (bool(ctx.error)) [[unlikely]]
                         return;
-                     }
                      
                      const auto n = size_t(it - start);
                      ++it;

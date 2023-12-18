@@ -230,7 +230,12 @@ namespace glz::detail
          switch (*it) {
             case '\\': {
                ++it;
+               if (it == end) [[unlikely]] {
+                  ctx.error = error_code::expected_quote;
+                  return;
+               }
                ++it;
+               break;
             }
             case '"': {
                return;
