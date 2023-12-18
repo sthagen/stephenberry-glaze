@@ -618,11 +618,17 @@ namespace glz
                      }
                      ++it;
                   };
-
-                  value.clear(); // Single append on unescaped strings so overwrite opt isnt as important
-                  auto start = it;
-                  while (it < end) {
-                     if constexpr (!Opts.force_conformance) {
+                  
+                  if constexpr (!Opts.force_conformance) {
+                     auto start = it;
+                     skip_till_unescaped_quote(ctx, it, end);
+                     if (bool(ctx.error)) [[unlikely]]
+                        return;
+                     value.reserve(size_t(it - start));
+                     value.clear();
+                     
+                     it = start;
+                     while (it < end) {
                         skip_till_escape_or_quote(ctx, it, end);
                         if (bool(ctx.error)) [[unlikely]]
                            return;
@@ -641,7 +647,11 @@ namespace glz
                            start = it;
                         }
                      }
-                     else {
+                  }
+                  else {
+                     value.clear(); // Single append on unescaped strings so overwrite opt isnt as important
+                     auto start = it;
+                     while (it < end) {
                         switch (*it) {
                         [[likely]] case '"' : {
                            value.append(start, size_t(it - start));
