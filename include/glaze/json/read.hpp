@@ -579,7 +579,7 @@ namespace glz
                }
                else {
                   if constexpr (!Opts.force_conformance) {
-                     value.clear(); // Single append on unescaped strings so overwrite opt isnt as important
+                     /*value.clear(); // Single append on unescaped strings so overwrite opt isnt as important
                      auto start = it;
                      
                      while (it < end) {
@@ -609,9 +609,9 @@ namespace glz
                            }
                            start = it;
                         }
-                     }
+                     }*/
                      
-                     /*auto start = it;
+                     auto start = it;
                      
                      skip_till_unescaped_quote(ctx, it, end);
                      if (bool(ctx.error)) [[unlikely]]
@@ -619,7 +619,7 @@ namespace glz
                      
                      auto& b = string_parse_buffer(); // we use our own special buffer because we don't want other functions to resize it smaller
                      
-                     static constexpr auto Bytes = 32;
+                     static constexpr auto Bytes = 8;
                      
                      const auto length = round_up_to_multiple<Bytes>(size_t(it - start));
                      if (length > b.size()) [[unlikely]] {
@@ -642,7 +642,7 @@ namespace glz
                         return;
                      }
                      
-                     ++it;*/
+                     ++it;
                   }
                   else {
                      auto handle_escaped = [&] {
