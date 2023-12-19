@@ -213,12 +213,16 @@ namespace glz::detail
          uint64_t test_chars = has_quote(chunk);
          if (test_chars) {
             it += (std::countr_zero(test_chars) >> 3);
-
-            if (it[-1] == '\\') {
-               ++it; // skip the escaped quote
+            
+            auto* prev = it - 1;
+            while (*prev == '\\') {
+               --prev;
+            }
+            if (size_t(it - prev) % 2) {
+               return;
             }
             else {
-               return;
+               ++it; // skip the escaped quote
             }
          }
          else {
