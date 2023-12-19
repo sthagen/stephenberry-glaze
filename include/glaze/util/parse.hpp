@@ -203,13 +203,14 @@ namespace glz::detail
       ctx.error = error_code::expected_quote;
    }
    
-   GLZ_ALWAYS_INLINE void skip_till_unescaped_quote(is_context auto&& ctx, auto&& it, auto&& end) noexcept
+   GLZ_ALWAYS_INLINE size_t skip_till_unescaped_quote(is_context auto&& ctx, auto&& it, auto&& end) noexcept
    {
       static_assert(std::contiguous_iterator<std::decay_t<decltype(it)>>);
       
       static constexpr auto Bytes = 32;
       static constexpr auto N = Bytes / sizeof(uint64_t);
       
+      size_t clean_blocks = 0;
       for (const auto fin = end - (Bytes - 1); it < fin;) {
          std::array<uint64_t, N> chunk;
          std::memcpy(chunk.data(), it, Bytes);
@@ -222,12 +223,13 @@ namespace glz::detail
                   it += 2;
                }
                else {
-                  return;
+                  return clean_blocks;
                }
                break;
             }
             else {
                it += 8;
+               ++clean_blocks;
             }
          }
       }
@@ -239,13 +241,21 @@ namespace glz::detail
                ++it;
                if (it == end) [[unlikely]] {
                   ctx.error = error_code::expected_quote;
-                  return;
+                  return 0;
                }
                ++it;
                break;
             }
             case '"': {
-               return;
+               auto* prev = it - 1;
+               while (*prev == '\\') {
+                  --prev;
+               }
+               if (size_t(it - prev) % 2) {
+                  return clean_blocks;
+               }
+               ++it; // skip the escaped quote
+               break;
             }
             default: {
                ++it;
@@ -254,6 +264,7 @@ namespace glz::detail
       }
       
       ctx.error = error_code::expected_quote;
+      return 0;
    }
 
    // very similar code to skip_till_quote, but it consumes the iterator and returns the key
