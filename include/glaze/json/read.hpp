@@ -440,18 +440,6 @@ namespace glz
          }
       };
 
-      /* Copyright (c) 2022 Tero 'stedo' Liukko, MIT License */
-      GLZ_ALWAYS_INLINE unsigned char hex2dec(char hex) { return ((hex & 0xf) + (hex >> 6) * 9); }
-
-      GLZ_ALWAYS_INLINE char32_t hex4_to_char32(const char* hex)
-      {
-         uint32_t value = hex2dec(hex[3]);
-         value |= hex2dec(hex[2]) << 4;
-         value |= hex2dec(hex[1]) << 8;
-         value |= hex2dec(hex[0]) << 12;
-         return value;
-      }
-
       template <class T, class Val, class It, class End>
       GLZ_ALWAYS_INLINE void read_escaped_unicode(Val& value, is_context auto&& ctx, It&& it, End&& end)
       {
@@ -544,24 +532,6 @@ namespace glz
 
          std::advance(it, 4);
       }
-      
-      // clang-format off
-      constexpr std::array<uint8_t, 256> char_unescape_table = { //
-         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
-         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
-         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
-         0, 0, 0, 0, '"', 0, 0, 0, 0, 0, //
-         0, 0, 0, 0, 0, 0, 0, '/', 0, 0, //
-         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
-         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
-         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
-         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
-         0, 0, '\\', 0, 0, 0, 0, 0, '\b', 0, //
-         0, 0, '\f', 0, 0, 0, 0, 0, 0, 0, //
-         '\n', 0, 0, 0, '\r', 0, '\t', 0, 0, 0, //
-         0, 0, 0, 0, 0, 0, 0, 0, 0, 0 //
-      };
-      // clang-format on
 
       template <string_t T>
       struct from_json<T>
@@ -604,38 +574,37 @@ namespace glz
                else {
                   if constexpr (!Opts.force_conformance) {
                      auto start = it;
-                     value.clear();
                      
-                     while (it < end) {
-                        skip_till_escape_or_quote(ctx, it, end);
-                        if (bool(ctx.error)) [[unlikely]]
-                           return;
-
-                        if (*it == '"') {
-                           value.append(start, size_t(it - start));
-                           ++it;
-                           return;
-                        }
-                        else {
-                           value.append(start, size_t(it - start));
-                           ++it;
-                           if (*it == 'u') [[unlikely]] {
-                              ++it;
-                              read_escaped_unicode<char>(value, ctx, it, end);
-                              if (bool(ctx.error)) [[unlikely]]
-                                 return;
-                           }
-                           else if (char_unescape_table[uint8_t(*it)]) [[likely]] {
-                              value.push_back(char_unescape_table[uint8_t(*it)]);
-                              ++it;
-                           }
-                           else [[unlikely]] {
-                              ctx.error = error_code::invalid_escape;
-                              return;
-                           }
-                           start = it;
-                        }
+                     skip_till_unescaped_quote(ctx, it, end);
+                     if (bool(ctx.error)) [[unlikely]]
+                        return;
+                     
+                     auto& b = string_buffer();
+                     
+                     auto length = round_up_to_multiple<8>(size_t(it - start));
+                     if (length > b.size()) [[unlikely]] {
+                        b.resize(length);
                      }
+                     
+                     char* c;
+                     if (length < size_t(end - it)) [[likely]] {
+                        c = parse_string<8>(&*start, b.data(), length);
+                     }
+                     else {
+                        c = parse_string<1>(&*start, b.data(), length);
+                     }
+                     
+                     if (c) [[likely]] {
+                        length = size_t(c - b.data());
+                        value.resize(length);
+                        std::memcpy(value.data(), b.data(), length);
+                     }
+                     else [[unlikely]] {
+                        ctx.error = error_code::syntax_error;
+                        return;
+                     }
+                     
+                     ++it;
                   }
                   else {
                      auto handle_escaped = [&] {
