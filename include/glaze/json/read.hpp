@@ -41,6 +41,12 @@ namespace glz
          static thread_local std::string buffer(128, ' ');
          return buffer;
       }
+      
+      GLZ_ALWAYS_INLINE std::string& string_parse_buffer() noexcept
+      {
+         static thread_local std::string buffer(256, ' ');
+         return buffer;
+      }
 
       template <class T = void>
       struct from_json
@@ -579,7 +585,7 @@ namespace glz
                      if (bool(ctx.error)) [[unlikely]]
                         return;
                      
-                     auto& b = string_buffer();
+                     auto& b = string_parse_buffer(); // we use our own special buffer because we don't want other functions to resize it smaller
                      
                      auto length = round_up_to_multiple<8>(size_t(it - start));
                      if (length > b.size()) [[unlikely]] {
@@ -590,7 +596,7 @@ namespace glz
                      if (length < size_t(end - it)) [[likely]] {
                         c = parse_string<8>(&*start, b.data(), length);
                      }
-                     else {
+                     else [[unlikely]] {
                         c = parse_string<1>(&*start, b.data(), length);
                      }
                      
