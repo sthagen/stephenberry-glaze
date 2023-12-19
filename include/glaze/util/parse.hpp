@@ -805,39 +805,51 @@ namespace glz::detail
       return std::countr_zero(has_quote(swar) | has_escape(swar)) >> 3;
    }
    
-   template <size_t Bytes> requires (Bytes == 8)
+   template <size_t Bytes> requires (Bytes % 8 == 0)
    GLZ_ALWAYS_INLINE char* parse_string(const auto* string1, auto* string2, uint64_t length_new) noexcept {
-      uint64_t swar;
+      static constexpr auto N = Bytes / sizeof(uint64_t);
+      
+      std::array<uint64_t, N> swar;
+      
+      loop_start:
       while (length_new > 0) {
-         const auto ix = copy_and_find_delimiters<Bytes>(string1, string2, swar);
-         if (ix != 8) {
-            auto escape_char = string1[ix];
-            if (escape_char == '"') {
-               return string2 + ix;
-            } else if (escape_char == '\\') {
-               escape_char = string1[ix + 1];
-               if (escape_char == 'u') {
-                  length_new -= ix;
-                  string1 += ix;
-                  string2 += ix;
-                  if (!handle_escaped_unicode(string1, string2)) {
+         std::memcpy(&swar, string1, Bytes);
+         std::memcpy(string2, string1, Bytes);
+         
+         for (size_t i = 0; i < N; ++i) {
+            const auto ix = std::countr_zero(has_quote(swar[i]) | has_escape(swar[i])) >> 3;
+            
+            if (ix != 8) {
+               auto escape_char = string1[ix];
+               if (escape_char == '"') {
+                  return string2 + ix;
+               }
+               else if (escape_char == '\\') {
+                  escape_char = string1[ix + 1];
+                  if (escape_char == 'u') {
+                     length_new -= ix;
+                     string1 += ix;
+                     string2 += ix;
+                     if (!handle_escaped_unicode(string1, string2)) {
+                        return {};
+                     }
+                     goto loop_start;
+                  }
+                  escape_char = char_unescape_table[escape_char];
+                  if (escape_char == 0) {
                      return {};
                   }
-                  continue;
+                  string2[ix] = escape_char;
+                  length_new -= ix + 2;
+                  string2 += ix + 1;
+                  string1 += ix + 2;
+                  break;
                }
-               escape_char = char_unescape_table[escape_char];
-               if (escape_char == 0) {
-                  return {};
-               }
-               string2[ix] = escape_char;
-               length_new -= ix + 2;
-               string2 += ix + 1;
-               string1 += ix + 2;
+            } else {
+               length_new -= 8;
+               string2 += 8;
+               string1 += 8;
             }
-         } else {
-            length_new -= Bytes;
-            string2 += Bytes;
-            string1 += Bytes;
          }
       }
       return string2;

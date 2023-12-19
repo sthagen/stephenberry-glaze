@@ -587,14 +587,16 @@ namespace glz
                      
                      auto& b = string_parse_buffer(); // we use our own special buffer because we don't want other functions to resize it smaller
                      
-                     const auto length = round_up_to_multiple<8>(size_t(it - start));
+                     static constexpr auto Bytes = 32;
+                     
+                     const auto length = round_up_to_multiple<Bytes>(size_t(it - start));
                      if (length > b.size()) [[unlikely]] {
                         b.resize(length);
                      }
                      
                      char* c;
                      if (length < size_t(end - it)) [[likely]] {
-                        c = parse_string<8>(&*start, b.data(), length);
+                        c = parse_string<Bytes>(&*start, b.data(), length);
                      }
                      else [[unlikely]] {
                         c = parse_string<1>(&*start, b.data(), length);
