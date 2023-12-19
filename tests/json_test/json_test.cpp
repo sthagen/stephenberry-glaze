@@ -1081,7 +1081,11 @@ suite bench = [] {
 
       tstart = std::chrono::high_resolution_clock::now();
       for (size_t i{}; i < repeat; ++i) {
-         expect(glz::read_json(thing, buffer) == glz::error_code::none);
+         const auto e = glz::read_json(thing, buffer);
+         expect(e == glz::error_code::none) << glz::format_error(e, buffer);
+         if (e) {
+            break;
+         }
       }
       tend = std::chrono::high_resolution_clock::now();
       duration = std::chrono::duration_cast<std::chrono::duration<double>>(tend - tstart).count();
