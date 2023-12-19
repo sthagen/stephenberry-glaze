@@ -798,18 +798,18 @@ namespace glz::detail
    };
    // clang-format on
    
+   template <size_t Bytes>
    GLZ_ALWAYS_INLINE auto copy_and_find_delimiters(auto* string1, auto* string2, auto& swar) noexcept {
-      using S = std::decay_t<decltype(swar)>;
-      std::memcpy(&swar, string1, sizeof(S));
-      std::memcpy(string2, string1, sizeof(S));
+      std::memcpy(&swar, string1, Bytes);
+      std::memcpy(string2, string1, Bytes);
       return std::countr_zero(has_quote(swar) | has_escape(swar)) >> 3;
    }
    
-   template <size_t N> requires (N == 8)
+   template <size_t Bytes> requires (Bytes == 8)
    GLZ_ALWAYS_INLINE char* parse_string(const auto* string1, auto* string2, uint64_t length_new) noexcept {
       uint64_t swar;
       while (length_new > 0) {
-         uint64_t ix = copy_and_find_delimiters(string1, string2, swar);
+         const auto ix = copy_and_find_delimiters<Bytes>(string1, string2, swar);
          if (ix != 8) {
             auto escape_char = string1[ix];
             if (escape_char == '"') {
@@ -835,15 +835,15 @@ namespace glz::detail
                string1 += ix + 2;
             }
          } else {
-            length_new -= N;
-            string2 += N;
-            string1 += N;
+            length_new -= Bytes;
+            string2 += Bytes;
+            string1 += Bytes;
          }
       }
       return string2;
    }
    
-   template <size_t N> requires (N == 1)
+   template <size_t Bytes> requires (Bytes == 1)
    GLZ_ALWAYS_INLINE char* parse_string(const auto* string1, auto* string2, uint64_t length_new) noexcept {
       while (length_new > 0) {
          *string2 = *string1;
