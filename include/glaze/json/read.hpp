@@ -587,7 +587,7 @@ namespace glz
                      
                      auto& b = string_parse_buffer(); // we use our own special buffer because we don't want other functions to resize it smaller
                      
-                     auto length = round_up_to_multiple<8>(size_t(it - start));
+                     const auto length = round_up_to_multiple<8>(size_t(it - start));
                      if (length > b.size()) [[unlikely]] {
                         b.resize(length);
                      }
@@ -601,8 +601,7 @@ namespace glz
                      }
                      
                      if (c) [[likely]] {
-                        length = size_t(c - b.data());
-                        value = sv{ b.data(), length };
+                        value = sv{ b.data(), size_t(c - b.data()) };
                      }
                      else [[unlikely]] {
                         ctx.error = error_code::syntax_error;
