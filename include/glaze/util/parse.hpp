@@ -834,7 +834,7 @@ namespace glz::detail
                   continue;
                }
                escape_char = char_unescape_table[escape_char];
-               if (escape_char == 0) {
+               if (escape_char == 0) [[unlikely]] {
                   return {};
                }
                string2[ix] = escape_char;
