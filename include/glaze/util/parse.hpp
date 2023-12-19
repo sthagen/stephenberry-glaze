@@ -208,10 +208,13 @@ namespace glz::detail
    {
       static_assert(std::contiguous_iterator<std::decay_t<decltype(it)>>);
       
-      for (const auto fin = end - 31; it < fin;) {
-         std::array<uint64_t, 4> chunk;
-         std::memcpy(chunk.data(), it, 32);
-         for (size_t i = 0; i < 4; ++i) {
+      static constexpr auto Bytes = 32;
+      static constexpr auto N = Bytes / sizeof(uint64_t);
+      
+      for (const auto fin = end - (Bytes - 1); it < fin;) {
+         std::array<uint64_t, N> chunk;
+         std::memcpy(chunk.data(), it, Bytes);
+         for (size_t i = 0; i < N; ++i) {
             uint64_t test_chars = has_escape(chunk[i]) | has_quote(chunk[i]);
             if (test_chars) {
                it += (std::countr_zero(test_chars) >> 3);
