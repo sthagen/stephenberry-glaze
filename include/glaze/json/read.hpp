@@ -596,8 +596,7 @@ namespace glz
                      
                      if (c) [[likely]] {
                         length = size_t(c - b.data());
-                        value.resize(length);
-                        std::memcpy(value.data(), b.data(), length);
+                        value = sv{ b.data(), length };
                      }
                      else [[unlikely]] {
                         ctx.error = error_code::syntax_error;

@@ -222,9 +222,7 @@ namespace glz::detail
             if (size_t(it - prev) % 2) {
                return;
             }
-            else {
-               ++it; // skip the escaped quote
-            }
+            ++it; // skip the escaped quote
          }
          else {
             it += 8;
