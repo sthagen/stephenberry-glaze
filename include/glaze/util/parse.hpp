@@ -203,31 +203,30 @@ namespace glz::detail
       ctx.error = error_code::expected_quote;
    }
    
-   GLZ_ALWAYS_INLINE size_t skip_till_unescaped_quote(is_context auto&& ctx, auto&& it, auto&& end) noexcept
+   GLZ_ALWAYS_INLINE void skip_till_unescaped_quote(is_context auto&& ctx, auto&& it, auto&& end) noexcept
    {
       static_assert(std::contiguous_iterator<std::decay_t<decltype(it)>>);
       
-      size_t clean_blocks = 0;
       for (const auto fin = end - 7; it < fin;) {
-         uint64_t chunk;
-         std::memcpy(&chunk, it, 8);
-         uint64_t test_chars = has_escape(chunk) | has_quote(chunk);
-         if (test_chars) {
-            it += (std::countr_zero(test_chars) >> 3);
-            
-            if (*it == '\\') {
-               it += 2;
-            }
-            else {
-               return clean_blocks;
-            }
-            break;
-         }
-         else {
-            it += 8;
-            ++clean_blocks;
-         }
-      }
+       uint64_t chunk;
+       std::memcpy(&chunk, it, 8);
+       uint64_t test_chars = has_quote(chunk);
+       if (test_chars) {
+          it += (std::countr_zero(test_chars) >> 3);
+
+          auto* prev = it - 1;
+          while (*prev == '\\') {
+             --prev;
+          }
+          if (size_t(it - prev) % 2) {
+             return;
+          }
+          ++it; // skip the escaped quote
+       }
+       else {
+          it += 8;
+       }
+    }
 
       // Tail end of buffer. Should be rare we even get here
       while (it < end) {
@@ -236,7 +235,7 @@ namespace glz::detail
                ++it;
                if (it == end) [[unlikely]] {
                   ctx.error = error_code::expected_quote;
-                  return 0;
+                  return;
                }
                ++it;
                break;
@@ -247,7 +246,7 @@ namespace glz::detail
                   --prev;
                }
                if (size_t(it - prev) % 2) {
-                  return clean_blocks;
+                  return;
                }
                ++it; // skip the escaped quote
                break;
@@ -259,7 +258,6 @@ namespace glz::detail
       }
       
       ctx.error = error_code::expected_quote;
-      return 0;
    }
 
    // very similar code to skip_till_quote, but it consumes the iterator and returns the key
