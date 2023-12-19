@@ -208,36 +208,26 @@ namespace glz::detail
    {
       static_assert(std::contiguous_iterator<std::decay_t<decltype(it)>>);
       
-      for (const auto fin = end - 15; it < fin;) {
-         uint64_t chunk;
-         std::memcpy(&chunk, it, 8);
-         uint64_t test_chars = has_quote(chunk);
-         if (test_chars) {
-            it += (std::countr_zero(test_chars) >> 3);
-            
-            auto* prev = it - 1;
-            while (*prev == '\\') {
-               --prev;
+      for (const auto fin = end - 31; it < fin;) {
+         std::array<uint64_t, 4> chunk;
+         std::memcpy(chunk.data(), it, 32);
+         for (size_t i = 0; i < 4; ++i) {
+            uint64_t test_chars = has_escape(chunk[i]) | has_quote(chunk[i]);
+            if (test_chars) {
+               it += (std::countr_zero(test_chars) >> 3);
+               
+               if (*it == '\\') {
+                  it += 2;
+               }
+               else {
+                  return;
+               }
+               break;
             }
-            if (size_t(it - prev) % 2) {
-               return;
+            else {
+               it += 8;
             }
-            ++it; // skip the escaped quote
          }
-         else {
-            it += 8;
-         }
-      }
-      
-      if (*it == '"') {
-         auto* prev = it - 1;
-         while (*prev == '\\') {
-            --prev;
-         }
-         if (size_t(it - prev) % 2) {
-            return;
-         }
-         ++it; // skip the escaped quote
       }
 
       // Tail end of buffer. Should be rare we even get here
