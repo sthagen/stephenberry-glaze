@@ -14,7 +14,7 @@ std::mt19937 gen{};
 static constexpr std::string_view charset{
    "!#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz{|}~\"\\\r\b\f\t\n"};
 
-inline std::string generate_string()
+inline auto generate_string()
 {
    auto length = std::uniform_int_distribution<uint32_t>{0, 512}(gen);
    static int32_t charsetSize = charset.size();
@@ -27,6 +27,12 @@ inline std::string generate_string()
    return result;
 }
 
+template <std::floating_point T>
+inline auto generate_float()
+{
+   return std::uniform_real_distribution<T>{(std::numeric_limits<T>::lowest)(), (std::numeric_limits<T>::max)()}(gen);
+}
+
 suite string_performance = [] {
    "string_performance"_test = [] {
       constexpr auto n = 1000; // make this number bigger when profiling
@@ -36,6 +42,31 @@ suite string_performance = [] {
 
       for (size_t i = 0; i < n; ++i) {
          vec.emplace_back(generate_string());
+      }
+
+      std::string buffer;
+      glz::write_json(vec, buffer);
+      vec.clear();
+      auto t0 = std::chrono::steady_clock::now();
+      const auto e = glz::read_json(vec, buffer);
+      auto t1 = std::chrono::steady_clock::now();
+
+      expect(!e);
+
+      auto duration = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() * 1e-6;
+      std::cerr << duration << '\n';
+   };
+};
+
+suite float_performance = [] {
+   "string_performance"_test = [] {
+      constexpr auto n = 10000000; // make this number bigger when profiling
+
+      std::vector<double> vec;
+      vec.reserve(n);
+
+      for (size_t i = 0; i < n; ++i) {
+         vec.emplace_back(generate_float<double>());
       }
 
       std::string buffer;
