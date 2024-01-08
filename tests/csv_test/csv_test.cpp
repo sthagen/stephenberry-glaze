@@ -273,6 +273,50 @@ x,1,2,3,4,5)");
    };
 };
 
+suite carriage_return_tests = [] {
+   "carriage_return_colwise"_test = [] {
+      std::string input_col = "num1,num2,maybe,v3s[0],v3s[1],v3s[2]\r\n11,22,1,1,1,1\r\n33,44,1,2,2,2\r\n55,66,0,3,3,3\r\n77,88,0,4,4,4\r\n";
+      
+      my_struct obj{};
+      
+      expect(!glz::read_csv<glz::colwise>(obj, input_col));
+      
+      expect(obj.num1[0] == 11);
+      expect(obj.num2[2] == 66);
+      expect(obj.maybe[3] == false);
+      expect(obj.v3s[0] == std::array{1, 1, 1});
+      expect(obj.v3s[1] == std::array{2, 2, 2});
+      expect(obj.v3s[2] == std::array{3, 3, 3});
+      expect(obj.v3s[3] == std::array{4, 4, 4});
+      
+      std::string out{};
+      
+      glz::write<glz::opts{.format = glz::csv, .layout = glz::colwise}>(obj, out);
+      expect(out == "num1,num2,maybe,v3s[0],v3s[1],v3s[2]\r\n11,22,1,1,1,1\r\n33,44,1,2,2,2\r\n55,66,0,3,3,3\r\n77,88,0,4,4,4\r\n");
+      
+      expect(!glz::write_file_csv<glz::colwise>(obj, "csv_test_colwise.csv", std::string{}));
+   };
+   
+   "carriage_return_rowwise"_test = [] {
+      std::string input_row = "num1,11,33,55,77\r\nnum2,22,44,66,88\r\nmaybe,1,1,0,0\r\nv3s[0],1,2,3,4\r\nv3s[1],1,2,3,4\r\nv3s[2],1,2,3,4";
+
+      my_struct obj{};
+      expect(!glz::read_csv(obj, input_row));
+
+      expect(obj.num1[0] == 11);
+      expect(obj.num2[2] == 66);
+      expect(obj.maybe[3] == false);
+      expect(obj.v3s[0][2] == 1);
+
+      std::string out{};
+
+      glz::write<glz::opts{.format = glz::csv}>(obj, out);
+      expect(out == "num1,11,33,55,77\r\nnum2,22,44,66,88\r\nmaybe,1,1,0,0\r\nv3s[0],1,2,3,4\r\nv3s[1],1,2,3,4\r\nv3s[2],1,2,3,4");
+
+      expect(!glz::write_file_csv(obj, "csv_test_rowwise.csv", std::string{}));
+   };
+};
+
 struct reflect_my_struct
 {
    std::vector<int> num1{};
