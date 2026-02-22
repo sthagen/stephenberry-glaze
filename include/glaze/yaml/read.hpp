@@ -3514,9 +3514,10 @@ namespace glz
                                        return true;
                                     }
                                     else if constexpr (glaze_value_t<member_type>) {
-                                       using unwrapped_member_type = std::decay_t<decltype(
-                                          get_member(std::declval<member_type&>(), meta_wrapper_v<member_type>))>;
-                                       return readable_map_t<unwrapped_member_type> || is_variant<unwrapped_member_type>;
+                                       using unwrapped_member_type = std::decay_t<decltype(get_member(
+                                          std::declval<member_type&>(), meta_wrapper_v<member_type>))>;
+                                       return readable_map_t<unwrapped_member_type> ||
+                                              is_variant<unwrapped_member_type>;
                                     }
                                     else {
                                        return false;
