@@ -7,11 +7,13 @@
 #include <concepts>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <new>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 
 #include "glaze/hash/sweethash.hpp"
@@ -88,24 +90,135 @@ namespace glz
 
       static constexpr size_type linear_search_threshold = 8;
       static constexpr size_type bloom_threshold = 128; // disable bloom filter above this size
+      static constexpr uint32_t max_u32 = (std::numeric_limits<uint32_t>::max)();
 
       static uint32_t hash_key(std::string_view key) noexcept { return sweethash::sweet32(key); }
 
       // --- Data array management ---
 
+      [[noreturn]] static void throw_capacity_overflow()
+      {
+         GLZ_THROW_OR_ABORT(std::length_error("ordered_small_map capacity overflow"));
+      }
+
+      [[noreturn]] static void throw_index_overflow()
+      {
+         GLZ_THROW_OR_ABORT(std::length_error("ordered_small_map index capacity overflow"));
+      }
+
+      static uint32_t checked_u32(size_type value)
+      {
+         if (value > static_cast<size_type>(max_u32)) {
+            throw_capacity_overflow();
+         }
+         return static_cast<uint32_t>(value);
+      }
+
+      static uint32_t next_data_capacity(uint32_t current)
+      {
+         if (current == 0) return 4;
+         if (current > (max_u32 / 2)) return max_u32;
+         return current * 2;
+      }
+
+      static uint32_t next_index_capacity(uint32_t current)
+      {
+         if (current == 0) return 16;
+         if (current > (max_u32 / 2)) return max_u32;
+         return current * 2;
+      }
+
+      static size_t checked_data_allocation_bytes(uint32_t count)
+      {
+         if (count > ((std::numeric_limits<size_t>::max)() / sizeof(value_type))) {
+            GLZ_THROW_OR_ABORT(std::bad_alloc{});
+         }
+         return static_cast<size_t>(count) * sizeof(value_type);
+      }
+
+      static size_t checked_index_allocation_bytes(uint32_t count)
+      {
+         constexpr size_t header = sizeof(index_header);
+         constexpr size_t entry = sizeof(hash_index_entry);
+         if (count > (((std::numeric_limits<size_t>::max)() - header) / entry)) {
+            GLZ_THROW_OR_ABORT(std::bad_alloc{});
+         }
+         return header + static_cast<size_t>(count) * entry;
+      }
+
+      static void destroy_range(value_type* data, uint32_t count) noexcept
+      {
+         for (uint32_t i = 0; i < count; ++i) {
+            std::destroy_at(data + i);
+         }
+      }
+
+      value_type* allocate_and_relocate(uint32_t new_cap)
+      {
+         auto* new_data = static_cast<value_type*>(::operator new(checked_data_allocation_bytes(new_cap)));
+#if __cpp_exceptions
+         uint32_t constructed = 0;
+         try {
+            for (; constructed < size_; ++constructed) {
+               std::construct_at(new_data + constructed, std::move_if_noexcept(data_[constructed]));
+            }
+         }
+         catch (...) {
+            destroy_range(new_data, constructed);
+            ::operator delete(new_data);
+            throw;
+         }
+#else
+         for (uint32_t i = 0; i < size_; ++i) {
+            std::construct_at(new_data + i, std::move_if_noexcept(data_[i]));
+         }
+#endif
+         return new_data;
+      }
+
+      static value_type* allocate_and_copy(const value_type* source, uint32_t count)
+      {
+         auto* new_data = static_cast<value_type*>(::operator new(checked_data_allocation_bytes(count)));
+#if __cpp_exceptions
+         uint32_t constructed = 0;
+         try {
+            for (; constructed < count; ++constructed) {
+               std::construct_at(new_data + constructed, source[constructed]);
+            }
+         }
+         catch (...) {
+            destroy_range(new_data, constructed);
+            ::operator delete(new_data);
+            throw;
+         }
+#else
+         for (uint32_t i = 0; i < count; ++i) {
+            std::construct_at(new_data + i, source[i]);
+         }
+#endif
+         return new_data;
+      }
+
+      void reallocate_data(uint32_t new_cap)
+      {
+         if (new_cap < size_) {
+            throw_capacity_overflow();
+         }
+         auto* new_data = allocate_and_relocate(new_cap);
+         destroy_all();
+         ::operator delete(data_);
+         data_ = new_data;
+         capacity_ = new_cap;
+      }
+
       void grow_if_needed()
       {
          if (size_ == capacity_) {
-            const uint32_t new_cap = capacity_ ? capacity_ * 2 : 4;
-            auto* new_data = static_cast<value_type*>(::operator new(new_cap * sizeof(value_type)));
-            // Move existing elements
-            for (uint32_t i = 0; i < size_; ++i) {
-               std::construct_at(new_data + i, std::move(data_[i]));
-               std::destroy_at(data_ + i);
+            if (size_ == max_u32) {
+               throw_capacity_overflow();
             }
-            ::operator delete(data_);
-            data_ = new_data;
-            capacity_ = new_cap;
+            const uint32_t new_cap = next_data_capacity(capacity_);
+            reallocate_data(new_cap);
          }
       }
 
@@ -128,6 +241,15 @@ namespace glz
       {
          grow_if_needed();
          std::construct_at(data_ + size_, std::forward<Args>(args)...);
+         ++size_;
+      }
+
+      template <class K, class... Args>
+      void emplace_back_kv(K&& key, Args&&... args)
+      {
+         grow_if_needed();
+         std::construct_at(data_ + size_, std::piecewise_construct, std::forward_as_tuple(std::forward<K>(key)),
+                           std::forward_as_tuple(std::forward<Args>(args)...));
          ++size_;
       }
 
@@ -186,13 +308,23 @@ namespace glz
          index_ = nullptr;
       }
 
-      void ensure_index_capacity(uint32_t needed) const
+      void ensure_index_capacity(size_type needed) const
       {
-         if (index_ && index_->capacity >= needed) return;
+         if (needed == 0) return;
+         if (needed > static_cast<size_type>(max_u32)) {
+            throw_index_overflow();
+         }
+         const auto needed_u32 = static_cast<uint32_t>(needed);
+         if (index_ && index_->capacity >= needed_u32) return;
          uint32_t cap = index_ ? index_->capacity : 0;
-         while (cap < needed) cap = cap ? cap * 2 : 16;
-         auto* block =
-            static_cast<index_header*>(std::realloc(index_, sizeof(index_header) + cap * sizeof(hash_index_entry)));
+         while (cap < needed_u32) {
+            const uint32_t next = next_index_capacity(cap);
+            if (next <= cap) {
+               throw_index_overflow();
+            }
+            cap = next;
+         }
+         auto* block = static_cast<index_header*>(std::realloc(index_, checked_index_allocation_bytes(cap)));
          if (!block) GLZ_THROW_OR_ABORT(std::bad_alloc{});
          if (!index_) {
             block->size = 0;
@@ -207,7 +339,7 @@ namespace glz
       // Full rebuild: rehash all keys, sort, and repopulate bloom filter.
       void rebuild_index() const
       {
-         ensure_index_capacity(size_);
+         ensure_index_capacity(static_cast<size_type>(size_));
          bloom_clear();
          auto* entries = index_entries();
          for (uint32_t i = 0; i < size_; ++i) {
@@ -241,7 +373,7 @@ namespace glz
             auto pos = static_cast<size_t>(p - base);
 
             const uint32_t m = index_->size;
-            ensure_index_capacity(m + 1);
+            ensure_index_capacity(static_cast<size_type>(m) + 1);
             auto* entries = index_entries();
             if (pos < m) {
                std::memmove(entries + pos + 1, entries + pos, (m - pos) * sizeof(hash_index_entry));
@@ -352,6 +484,39 @@ namespace glz
          return data_ + size_;
       }
 
+      template <class K, class F>
+      mapped_type& subscript_or_insert(const K& key, F&& append_fn)
+      {
+         if (size_ <= linear_search_threshold) {
+            auto it = linear_find(key);
+            if (it != end()) return it->second;
+            append_fn();
+            return data_[size_ - 1].second;
+         }
+
+         const uint32_t h = hash_key(key);
+         if (try_bloom_insert(h, append_fn)) {
+            return data_[size_ - 1].second;
+         }
+
+         auto [it, pos, _] = index_find_or_pos(key, h);
+         if (it != end()) return it->second;
+
+         append_fn();
+         bloom_set(h);
+         if (index_size() > 0) {
+            const uint32_t n = index_->size;
+            ensure_index_capacity(static_cast<size_type>(n) + 1);
+            auto* entries = index_entries();
+            if (pos < n) {
+               std::memmove(entries + pos + 1, entries + pos, (n - pos) * sizeof(hash_index_entry));
+            }
+            entries[pos] = {h, size_ - 1};
+            index_->size = size_;
+         }
+         return data_[size_ - 1].second;
+      }
+
       // --- Insert helpers ---
 
       // Try the bloom filter fast path for insert.
@@ -383,7 +548,7 @@ namespace glz
          // Insert the new entry into the sorted index to keep it current.
          if (index_size() > 0) {
             const uint32_t n = index_->size;
-            ensure_index_capacity(n + 1);
+            ensure_index_capacity(static_cast<size_type>(n) + 1);
             auto* entries = index_entries();
             if (pos < n) {
                std::memmove(entries + pos + 1, entries + pos, (n - pos) * sizeof(hash_index_entry));
@@ -407,9 +572,16 @@ namespace glz
       ordered_small_map(std::initializer_list<value_type> init)
       {
          reserve(init.size());
-         for (const auto& pair : init) {
-            if (linear_find(pair.first) == end()) {
-               push_back_impl(pair);
+         if (init.size() <= linear_search_threshold) {
+            for (const auto& pair : init) {
+               if (linear_find(pair.first) == end()) {
+                  push_back_impl(pair);
+               }
+            }
+         }
+         else {
+            for (const auto& pair : init) {
+               insert(pair);
             }
          }
       }
@@ -425,12 +597,9 @@ namespace glz
       ordered_small_map(const ordered_small_map& other)
       {
          if (other.size_ > 0) {
-            data_ = static_cast<value_type*>(::operator new(other.size_ * sizeof(value_type)));
-            capacity_ = other.size_;
-            for (uint32_t i = 0; i < other.size_; ++i) {
-               std::construct_at(data_ + i, other.data_[i]);
-            }
+            data_ = allocate_and_copy(other.data_, other.size_);
             size_ = other.size_;
+            capacity_ = other.size_;
          }
          // Don't copy index - it will be rebuilt lazily
       }
@@ -447,16 +616,8 @@ namespace glz
       ordered_small_map& operator=(const ordered_small_map& other)
       {
          if (this != &other) {
-            free_data();
-            free_index();
-            if (other.size_ > 0) {
-               data_ = static_cast<value_type*>(::operator new(other.size_ * sizeof(value_type)));
-               capacity_ = other.size_;
-               for (uint32_t i = 0; i < other.size_; ++i) {
-                  std::construct_at(data_ + i, other.data_[i]);
-               }
-               size_ = other.size_;
-            }
+            ordered_small_map copy(other);
+            swap(copy);
          }
          return *this;
       }
@@ -500,17 +661,21 @@ namespace glz
       size_type size() const noexcept { return size_; }
       size_type capacity() const noexcept { return capacity_; }
 
+      void swap(ordered_small_map& other) noexcept
+      {
+         using std::swap;
+         swap(data_, other.data_);
+         swap(size_, other.size_);
+         swap(capacity_, other.capacity_);
+         swap(index_, other.index_);
+      }
+
+      friend void swap(ordered_small_map& lhs, ordered_small_map& rhs) noexcept { lhs.swap(rhs); }
+
       void reserve(size_type new_cap)
       {
          if (new_cap <= capacity_) return;
-         auto* new_data = static_cast<value_type*>(::operator new(new_cap * sizeof(value_type)));
-         for (uint32_t i = 0; i < size_; ++i) {
-            std::construct_at(new_data + i, std::move(data_[i]));
-            std::destroy_at(data_ + i);
-         }
-         ::operator delete(data_);
-         data_ = new_data;
-         capacity_ = static_cast<uint32_t>(new_cap);
+         reallocate_data(checked_u32(new_cap));
       }
 
       void shrink_to_fit()
@@ -522,14 +687,7 @@ namespace glz
             capacity_ = 0;
             return;
          }
-         auto* new_data = static_cast<value_type*>(::operator new(size_ * sizeof(value_type)));
-         for (uint32_t i = 0; i < size_; ++i) {
-            std::construct_at(new_data + i, std::move(data_[i]));
-            std::destroy_at(data_ + i);
-         }
-         ::operator delete(data_);
-         data_ = new_data;
-         capacity_ = size_;
+         reallocate_data(size_);
       }
 
       // Modifiers
@@ -584,24 +742,110 @@ namespace glz
       template <class K, class... Args>
       std::pair<iterator, bool> emplace(K&& key, Args&&... args)
       {
-         if (size_ <= linear_search_threshold) {
-            auto it = linear_find(key);
-            if (it != end()) return {it, false};
-            emplace_back_impl(std::forward<K>(key), T(std::forward<Args>(args)...));
-            return {data_ + size_ - 1, true};
-         }
-         const uint32_t h = hash_key(key);
-         if (try_bloom_insert(h, [&] { emplace_back_impl(std::forward<K>(key), T(std::forward<Args>(args)...)); })) {
-            return {data_ + size_ - 1, true};
-         }
-         return indexed_insert(key, h,
-                               [&] { emplace_back_impl(std::forward<K>(key), T(std::forward<Args>(args)...)); });
+         return try_emplace(std::forward<K>(key), std::forward<Args>(args)...);
       }
 
       template <class K, class... Args>
       std::pair<iterator, bool> try_emplace(K&& key, Args&&... args)
       {
-         return emplace(std::forward<K>(key), std::forward<Args>(args)...);
+         if (size_ <= linear_search_threshold) {
+            auto it = linear_find(key);
+            if (it != end()) return {it, false};
+            emplace_back_kv(std::forward<K>(key), std::forward<Args>(args)...);
+            return {data_ + size_ - 1, true};
+         }
+         const uint32_t h = hash_key(key);
+         if (try_bloom_insert(h, [&] { emplace_back_kv(std::forward<K>(key), std::forward<Args>(args)...); })) {
+            return {data_ + size_ - 1, true};
+         }
+         auto [it, pos, _] = index_find_or_pos(key, h);
+         if (it != end()) return {it, false};
+         emplace_back_kv(std::forward<K>(key), std::forward<Args>(args)...);
+         bloom_set(h);
+         if (index_size() > 0) {
+            const uint32_t n = index_->size;
+            ensure_index_capacity(static_cast<size_type>(n) + 1);
+            auto* entries = index_entries();
+            if (pos < n) {
+               std::memmove(entries + pos + 1, entries + pos, (n - pos) * sizeof(hash_index_entry));
+            }
+            entries[pos] = {h, static_cast<uint32_t>(size_ - 1)};
+            index_->size = size_;
+         }
+         return {data_ + size_ - 1, true};
+      }
+
+      template <class M>
+      std::pair<iterator, bool> insert_or_assign(const key_type& key, M&& obj)
+      {
+         if (size_ <= linear_search_threshold) {
+            auto it = linear_find(key);
+            if (it != end()) {
+               it->second = std::forward<M>(obj);
+               return {it, false};
+            }
+            emplace_back_kv(key, std::forward<M>(obj));
+            return {data_ + size_ - 1, true};
+         }
+         const uint32_t h = hash_key(key);
+         if (try_bloom_insert(h, [&] { emplace_back_kv(key, std::forward<M>(obj)); })) {
+            return {data_ + size_ - 1, true};
+         }
+         auto [it, pos, _] = index_find_or_pos(key, h);
+         if (it != end()) {
+            it->second = std::forward<M>(obj);
+            return {it, false};
+         }
+         emplace_back_kv(key, std::forward<M>(obj));
+         bloom_set(h);
+         if (index_size() > 0) {
+            const uint32_t n = index_->size;
+            ensure_index_capacity(static_cast<size_type>(n) + 1);
+            auto* entries = index_entries();
+            if (pos < n) {
+               std::memmove(entries + pos + 1, entries + pos, (n - pos) * sizeof(hash_index_entry));
+            }
+            entries[pos] = {h, static_cast<uint32_t>(size_ - 1)};
+            index_->size = size_;
+         }
+         return {data_ + size_ - 1, true};
+      }
+
+      template <class M>
+      std::pair<iterator, bool> insert_or_assign(key_type&& key, M&& obj)
+      {
+         if (size_ <= linear_search_threshold) {
+            auto it = linear_find(key);
+            if (it != end()) {
+               it->second = std::forward<M>(obj);
+               return {it, false};
+            }
+            emplace_back_kv(std::move(key), std::forward<M>(obj));
+            return {data_ + size_ - 1, true};
+         }
+         const uint32_t h = hash_key(key);
+         if (try_bloom_insert(h, [&] { emplace_back_kv(std::move(key), std::forward<M>(obj)); })) {
+            return {data_ + size_ - 1, true};
+         }
+         // key may have been moved — but try_bloom_insert returned false, so the lambda didn't execute
+         auto [it, pos, _] = index_find_or_pos(key, h);
+         if (it != end()) {
+            it->second = std::forward<M>(obj);
+            return {it, false};
+         }
+         emplace_back_kv(std::move(key), std::forward<M>(obj));
+         bloom_set(h);
+         if (index_size() > 0) {
+            const uint32_t n = index_->size;
+            ensure_index_capacity(static_cast<size_type>(n) + 1);
+            auto* entries = index_entries();
+            if (pos < n) {
+               std::memmove(entries + pos + 1, entries + pos, (n - pos) * sizeof(hash_index_entry));
+            }
+            entries[pos] = {h, static_cast<uint32_t>(size_ - 1)};
+            index_->size = size_;
+         }
+         return {data_ + size_ - 1, true};
       }
 
       iterator erase(const_iterator pos)
@@ -682,61 +926,13 @@ namespace glz
       // Element access
       mapped_type& operator[](const key_type& key)
       {
-         if (size_ <= linear_search_threshold) {
-            auto it = linear_find(key);
-            if (it != end()) return it->second;
-            emplace_back_impl(key, mapped_type{});
-            return data_[size_ - 1].second;
-         }
-         const uint32_t h = hash_key(key);
-         if (try_bloom_insert(h, [&] { emplace_back_impl(key, mapped_type{}); })) {
-            return data_[size_ - 1].second;
-         }
-         auto [it, pos, _] = index_find_or_pos(key, h);
-         if (it != end()) return it->second;
-         emplace_back_impl(key, mapped_type{});
-         bloom_set(h);
-         if (index_size() > 0) {
-            const uint32_t n = index_->size;
-            ensure_index_capacity(n + 1);
-            auto* entries = index_entries();
-            if (pos < n) {
-               std::memmove(entries + pos + 1, entries + pos, (n - pos) * sizeof(hash_index_entry));
-            }
-            entries[pos] = {h, size_ - 1};
-            index_->size = size_;
-         }
-         return data_[size_ - 1].second;
+         return subscript_or_insert(key, [&] { emplace_back_impl(key, mapped_type{}); });
       }
 
       mapped_type& operator[](key_type&& key)
       {
-         if (size_ <= linear_search_threshold) {
-            auto it = linear_find(key);
-            if (it != end()) return it->second;
-            emplace_back_impl(std::move(key), mapped_type{});
-            return data_[size_ - 1].second;
-         }
-         const uint32_t h = hash_key(key);
-         if (try_bloom_insert(h, [&] { emplace_back_impl(std::move(key), mapped_type{}); })) {
-            return data_[size_ - 1].second;
-         }
-         // key may have been moved — but try_bloom_insert returned false, so the lambda didn't execute
-         auto [it, pos, _] = index_find_or_pos(key, h);
-         if (it != end()) return it->second;
-         emplace_back_impl(std::move(key), mapped_type{});
-         bloom_set(h);
-         if (index_size() > 0) {
-            const uint32_t n = index_->size;
-            ensure_index_capacity(n + 1);
-            auto* entries = index_entries();
-            if (pos < n) {
-               std::memmove(entries + pos + 1, entries + pos, (n - pos) * sizeof(hash_index_entry));
-            }
-            entries[pos] = {h, size_ - 1};
-            index_->size = size_;
-         }
-         return data_[size_ - 1].second;
+         // key may have been moved — but only if insertion actually happens.
+         return subscript_or_insert(key, [&] { emplace_back_impl(std::move(key), mapped_type{}); });
       }
 
       // Heterogeneous lookup version for operator[]
@@ -746,31 +942,8 @@ namespace glz
                   !std::same_as<std::decay_t<K>, key_type>)
       mapped_type& operator[](K&& key)
       {
-         if (size_ <= linear_search_threshold) {
-            auto it = linear_find(key);
-            if (it != end()) return it->second;
-            emplace_back_impl(std::string(std::forward<K>(key)), mapped_type{});
-            return data_[size_ - 1].second;
-         }
-         const uint32_t h = hash_key(key);
-         if (try_bloom_insert(h, [&] { emplace_back_impl(std::string(std::forward<K>(key)), mapped_type{}); })) {
-            return data_[size_ - 1].second;
-         }
-         auto [it, pos, _] = index_find_or_pos(key, h);
-         if (it != end()) return it->second;
-         emplace_back_impl(std::string(std::forward<K>(key)), mapped_type{});
-         bloom_set(h);
-         if (index_size() > 0) {
-            const uint32_t n = index_->size;
-            ensure_index_capacity(n + 1);
-            auto* entries = index_entries();
-            if (pos < n) {
-               std::memmove(entries + pos + 1, entries + pos, (n - pos) * sizeof(hash_index_entry));
-            }
-            entries[pos] = {h, size_ - 1};
-            index_->size = size_;
-         }
-         return data_[size_ - 1].second;
+         return subscript_or_insert(key,
+                                    [&] { emplace_back_impl(std::string(std::forward<K>(key)), mapped_type{}); });
       }
 
       template <class K>
