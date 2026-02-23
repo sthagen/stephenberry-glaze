@@ -566,8 +566,8 @@ suite ordered_small_map_tests = [] {
    };
 
    "initializer_list_duplicates_large"_test = [] {
-      glz::ordered_small_map<int> map = {{"k0", 0}, {"k1", 1}, {"k2", 2}, {"k3", 3}, {"k4", 4},
-                                         {"k5", 5}, {"k6", 6}, {"k7", 7}, {"k8", 8}, {"k9", 9},
+      glz::ordered_small_map<int> map = {{"k0", 0},   {"k1", 1},   {"k2", 2},   {"k3", 3}, {"k4", 4},
+                                         {"k5", 5},   {"k6", 6},   {"k7", 7},   {"k8", 8}, {"k9", 9},
                                          {"k3", 300}, {"k7", 700}, {"k0", 1000}};
 
       expect(map.size() == 10);

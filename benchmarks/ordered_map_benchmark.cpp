@@ -69,7 +69,8 @@ void write_markdown(const std::vector<bench_row>& rows, const char* path)
    std::fprintf(f, "|--:|----------------------:|-----------------:|---------:|--------|\n");
    for (const auto& r : rows) {
       const char* w = pick_winner(r.glz_small_map_lookup, r.glz_map_lookup, r.std_map_lookup);
-      std::fprintf(f, "| %zu | %.0f | %.0f | %.0f | %s |\n", r.n, r.glz_small_map_lookup, r.glz_map_lookup, r.std_map_lookup, w);
+      std::fprintf(f, "| %zu | %.0f | %.0f | %.0f | %s |\n", r.n, r.glz_small_map_lookup, r.glz_map_lookup,
+                   r.std_map_lookup, w);
    }
 
    // Insert table
@@ -78,7 +79,8 @@ void write_markdown(const std::vector<bench_row>& rows, const char* path)
    std::fprintf(f, "|--:|----------------------:|-----------------:|---------:|--------|\n");
    for (const auto& r : rows) {
       const char* w = pick_winner(r.glz_small_map_insert, r.glz_map_insert, r.std_map_insert);
-      std::fprintf(f, "| %zu | %.0f | %.0f | %.0f | %s |\n", r.n, r.glz_small_map_insert, r.glz_map_insert, r.std_map_insert, w);
+      std::fprintf(f, "| %zu | %.0f | %.0f | %.0f | %s |\n", r.n, r.glz_small_map_insert, r.glz_map_insert,
+                   r.std_map_insert, w);
    }
 
    // Iteration table

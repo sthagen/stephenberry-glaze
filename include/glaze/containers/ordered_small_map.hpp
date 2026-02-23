@@ -942,8 +942,7 @@ namespace glz
                   !std::same_as<std::decay_t<K>, key_type>)
       mapped_type& operator[](K&& key)
       {
-         return subscript_or_insert(key,
-                                    [&] { emplace_back_impl(std::string(std::forward<K>(key)), mapped_type{}); });
+         return subscript_or_insert(key, [&] { emplace_back_impl(std::string(std::forward<K>(key)), mapped_type{}); });
       }
 
       template <class K>
