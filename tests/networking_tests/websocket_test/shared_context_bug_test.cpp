@@ -10,7 +10,8 @@ using namespace ut;
 using namespace glz;
 
 // Helper to run a basic echo server (copied from websocket_client_test.cpp)
-void run_echo_server(std::atomic<bool>& server_ready, std::atomic<bool>& should_stop, std::atomic<uint16_t>& selected_port)
+void run_echo_server(std::atomic<bool>& server_ready, std::atomic<bool>& should_stop,
+                     std::atomic<uint16_t>& selected_port)
 {
    http_server server;
    auto ws_server = std::make_shared<websocket_server>();

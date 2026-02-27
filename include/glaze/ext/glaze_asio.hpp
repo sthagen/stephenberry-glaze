@@ -932,8 +932,8 @@ namespace glz
          state->self->remove_active_socket(socket);
       }
 
-      static bool handle_windows_session_error(const std::shared_ptr<windows_session_state>& state, const asio::error_code& ec,
-                                               const char* context)
+      static bool handle_windows_session_error(const std::shared_ptr<windows_session_state>& state,
+                                               const asio::error_code& ec, const char* context)
       {
          if (!state || !state->self) {
             return true;
@@ -948,8 +948,7 @@ namespace glz
          }
 
          const bool shutting_down = state->self->stop_requested.load(std::memory_order_relaxed);
-         if (shutting_down &&
-             (ec == asio::error::operation_aborted || ec == asio::error::bad_descriptor)) {
+         if (shutting_down && (ec == asio::error::operation_aborted || ec == asio::error::bad_descriptor)) {
             finish_windows_session(state);
             return true;
          }
@@ -976,8 +975,7 @@ namespace glz
 
          asio::async_read(
             *state->socket, asio::buffer(&state->message_length, sizeof(state->message_length)),
-            asio::transfer_exactly(sizeof(state->message_length)),
-            [state](const asio::error_code& ec, size_t) {
+            asio::transfer_exactly(sizeof(state->message_length)), [state](const asio::error_code& ec, size_t) {
                if (handle_windows_session_error(state, ec, "read length")) {
                   return;
                }
@@ -1019,7 +1017,8 @@ namespace glz
          }
 
          const auto remaining = size_t(state->message_length - sizeof(state->message_length));
-         asio::async_read(*state->socket, asio::buffer(state->request.data() + sizeof(state->message_length), remaining),
+         asio::async_read(*state->socket,
+                          asio::buffer(state->request.data() + sizeof(state->message_length), remaining),
                           asio::transfer_exactly(remaining), [state](const asio::error_code& ec, size_t) {
                              if (handle_windows_session_error(state, ec, "read body")) {
                                 return;
@@ -1123,8 +1122,7 @@ namespace glz
          acceptor->async_accept([this, acceptor](const asio::error_code& ec, asio::ip::tcp::socket socket) {
             if (ec) {
                const bool shutting_down = stop_requested.load(std::memory_order_relaxed);
-               if (!(shutting_down &&
-                     (ec == asio::error::operation_aborted || ec == asio::error::bad_descriptor))) {
+               if (!(shutting_down && (ec == asio::error::operation_aborted || ec == asio::error::bad_descriptor))) {
                   emit_error(ec.message());
                }
             }

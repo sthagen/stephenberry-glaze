@@ -175,10 +175,7 @@ namespace glz
          return std::nullopt;
       }
 
-      inline std::optional<std::string> env_path(const char* name)
-      {
-         return getenv_nonempty(name);
-      }
+      inline std::optional<std::string> env_path(const char* name) { return getenv_nonempty(name); }
 
       inline std::optional<std::string_view> to_sv_opt(const std::optional<std::string>& value)
       {
