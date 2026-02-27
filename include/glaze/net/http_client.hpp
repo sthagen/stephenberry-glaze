@@ -23,6 +23,7 @@
 
 #include "glaze/ext/glaze_asio.hpp"
 #include "glaze/net/http_router.hpp"
+#include "glaze/util/env.hpp"
 #include "glaze/util/key_transformers.hpp"
 
 #ifdef GLZ_ENABLE_SSL
@@ -174,13 +175,20 @@ namespace glz
          return std::nullopt;
       }
 
-      inline std::optional<std::string_view> env_path(const char* name)
+      inline std::optional<std::string> env_path(const char* name)
       {
-         if (const char* value = std::getenv(name); value && *value) {
-            return std::string_view{value};
+         return getenv_nonempty(name);
+      }
+
+      inline std::optional<std::string_view> to_sv_opt(const std::optional<std::string>& value)
+      {
+         if (value && !value->empty()) {
+            return std::string_view{*value};
          }
          return std::nullopt;
       }
+
+      std::optional<std::string_view> to_sv_opt(std::optional<std::string>&&) = delete;
 
       template <typename Loader>
       concept ssl_ca_path_loader = requires(Loader&& loader, std::string_view path) {
@@ -491,8 +499,11 @@ namespace glz
       {
          std::unique_lock<std::shared_mutex> lock(ssl_mtx);
 
+         const auto env_cert_file = detail::env_path("SSL_CERT_FILE");
+         const auto env_cert_dir = detail::env_path("SSL_CERT_DIR");
+
          auto result = detail::configure_ssl_ca_fallback(
-            cert_bundle_file, detail::env_path("SSL_CERT_FILE"), detail::env_path("SSL_CERT_DIR"),
+            cert_bundle_file, detail::to_sv_opt(env_cert_file), detail::to_sv_opt(env_cert_dir),
             [&](std::string_view path) -> std::error_code {
                asio::error_code ec;
                ssl_context->load_verify_file(std::string(path), ec);

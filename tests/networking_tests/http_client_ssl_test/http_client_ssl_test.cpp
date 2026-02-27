@@ -15,6 +15,7 @@
 #include "glaze/glaze.hpp"
 #include "glaze/net/http_client.hpp"
 #include "glaze/net/http_server.hpp"
+#include "glaze/util/env.hpp"
 #include "ut/ut.hpp"
 
 // OpenSSL includes for certificate generation
@@ -52,8 +53,8 @@ namespace
 
       explicit env_var_guard(std::string var_name) : name(std::move(var_name))
       {
-         if (const char* value = std::getenv(name.c_str()); value) {
-            original = value;
+         if (auto value = glz::getenv_nonempty(name.c_str())) {
+            original = std::move(*value);
          }
       }
 

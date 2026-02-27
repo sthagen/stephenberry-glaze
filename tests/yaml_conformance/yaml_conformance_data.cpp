@@ -20,6 +20,7 @@
 
 #include "glaze/glaze.hpp"
 #include "glaze/json/patch.hpp"
+#include "glaze/util/env.hpp"
 #include "glaze/yaml.hpp"
 #include "ut/ut.hpp"
 
@@ -1225,8 +1226,8 @@ suite yaml_conformance_data_tests = [] {
       return;
 #else
       fs::path suite_dir{YAML_TEST_SUITE_DIR};
-      if (const char* override_dir = std::getenv("YAML_TEST_SUITE_DIR_OVERRIDE"); override_dir && *override_dir) {
-         suite_dir = fs::path{override_dir};
+      if (const auto override_dir = glz::getenv_nonempty("YAML_TEST_SUITE_DIR_OVERRIDE")) {
+         suite_dir = fs::path{*override_dir};
       }
       expect(fs::exists(suite_dir)) << "yaml-test-suite directory not found: " << suite_dir.string();
       if (!fs::exists(suite_dir)) return;
